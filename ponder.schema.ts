@@ -2,10 +2,9 @@ import { index, onchainTable } from "ponder";
 
 // Decryption lifecycle of a confidential amount, as the API surfaces it:
 //  - decrypted: cleartext obtained via the Zama SDK (we held the rights)
-//  - public:    amount was already public on-chain (shield/unshield legs)
 //  - pending:   we are not (yet) entitled — handle persisted, awaiting backfill
-//  - failed:    a transient decrypt/relayer error — will be retried
-export type DecryptStatus = "decrypted" | "public" | "pending" | "failed";
+//  - failed:    a transient decrypt/RPC error — will be retried on the block sweep
+export type DecryptStatus = "decrypted" | "pending" | "failed";
 
 // from == 0x0 => mint (shield), to == 0x0 => burn (unshield), else a P2P transfer.
 export type TransferKind = "mint" | "burn" | "transfer";

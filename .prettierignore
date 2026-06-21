@@ -11,3 +11,8 @@ abis
 
 # Lockfile
 pnpm-lock.yaml
+
+# Vendored / generated Solidity stack — forge-fhevm submodule + the SDK reference
+# deploy (copied verbatim, never hand-edited). Its packages declare a prettier
+# plugin we don't install, so never let prettier descend here.
+contracts

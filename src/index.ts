@@ -1,13 +1,11 @@
 import { ponder } from "ponder:registry";
 import schema from "ponder:schema";
 import { and, eq, lt, or } from "ponder";
-import type { Address, Hex } from "viem";
+import type { Hex } from "viem";
 
 import { decryptAmount, decryptAmountAs } from "./lib/zama";
-
 // The single confidential token this indexer watches (its ACL owns the handles).
-const TOKEN = (process.env.CONFIDENTIAL_TOKEN_ADDRESS ??
-  "0x0000000000000000000000000000000000000000") as Address;
+import { TOKEN_ADDRESS as TOKEN } from "./config";
 const MAX_ATTEMPTS = 5; // give up retrying a "failed" row after this many sweeps
 const RETRY_BATCH = 25; // bound the relayer load per block-sweep
 

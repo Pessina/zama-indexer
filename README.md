@@ -1,6 +1,6 @@
 # zama-indexer
 
-A confidential ERC-7984 indexer: it watches a single confidential-token contract on Sepolia, decrypts transfer amounts with the Zama SDK as events are indexed, and serves an ERC-20-style read API (cleartext balances, transfer history, indexer health). Partners call the API and never touch FHE.
+A confidential ERC-7984 indexer: it watches a single confidential-token contract on a local fhEVM stack, decrypts transfer amounts with the Zama SDK as events are indexed, and serves an ERC-20-style read API (cleartext balances, transfer history, indexer health). Partners call the API and never touch FHE.
 
 > Draft — setup is runnable; the API and architecture sections are stubbed. See `DECISIONS.md` for design notes.
 
@@ -35,7 +35,7 @@ pnpm dev                 # indexer + read API at http://localhost:42069
 
 ## Configuration
 
-`pnpm local:deploy` writes a ready-to-run `.env.local` for local mode. See `.env.example` for every variable the service reads (including the Sepolia variables for `MODE=sepolia`). Never commit a real key.
+`pnpm local:deploy` writes a ready-to-run `.env.local`. See `.env.example` for every variable the service reads. Never commit a real key.
 
 ## Code quality
 
@@ -57,16 +57,14 @@ pnpm format       # prettier --write .   (pnpm format:check to verify, e.g. in C
 
 ## Testing
 
-The tests are **integration tests** — they exercise the real SDK `cleartext()` decrypt path against a live local stack (anvil + the forge-fhevm host stack + the deployed token), with **no mocks**. They need [Foundry](https://getfoundry.sh) and the stack running:
+The tests are **integration tests** — they exercise the real SDK `cleartext()` decrypt path against a live local stack (anvil + the forge-fhevm host stack + the deployed token), with **no mocks**. `pnpm test` provisions that stack itself: it starts an ephemeral anvil, deploys the host stack + tokens, runs the suite, and tears anvil down — or reuses a chain you already have running. It needs [Foundry](https://getfoundry.sh) installed and the contracts built once:
 
 ```bash
 pnpm contracts:setup     # once — fetch submodule + Solidity deps, then build
-pnpm chain               # terminal 1 — anvil (chain 31337); keep it running
-pnpm local:deploy        # terminal 2 — host stack + tokens; writes .env.local
-pnpm test                # terminal 2 — vitest run
+pnpm test                # spins up anvil + deploys + runs + tears the chain down
 ```
 
-`test/` funds accounts in vitest hooks (mint → shield → transfer/delegate via the SDK), then drives the indexer's decrypt seam (`src/lib/zama.ts`): the holder decrypts a handle it owns, a stranger's handle stays `pending` (never dropped), and an ACL delegation unlocks the backfill path. Assertions assume a freshly-deployed stack, so re-run `pnpm local:deploy` between runs (confidential balances accumulate on a persistent chain).
+`test/` funds accounts in vitest hooks (mint → shield, then an ACL delegation, all via the SDK), then drives the indexer's decrypt seam (`src/lib/zama.ts`): the holder decrypts a handle it owns, a stranger's handle stays `pending` (never dropped), and an ACL delegation unlocks the backfill path. If you already have `pnpm chain` running, the suite reuses it — re-run `pnpm local:deploy` between runs to reset balances.
 
 ## Design
 

@@ -2,10 +2,11 @@
 // anvil + forge-fhevm host stack + the deployed cUSDT token + the SDK `cleartext()`
 // transport + on-chain ACL — by driving the indexer's own decrypt seam
 // (`src/lib/zama`) the same way the indexer does. Funding happens here in the hook
-// (mint → shield → transfer/delegate), not in a demo script.
+// (mint → shield, then an ACL delegation), not in a demo script.
 //
-// Assumes a freshly-deployed stack: `pnpm chain` + `pnpm local:deploy` (acct0, the
-// holder, is pre-wrapped 1000 cUSDT by the deploy; acct1/acct2 start empty).
+// The local stack is provisioned automatically by test/setup/global.ts (an ephemeral
+// anvil + deploy, or a chain you already have running). The deploy pre-wraps acct0
+// (the holder) with 1000 cUSDT; acct1/acct2 start empty.
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { privateKeyToAccount } from "viem/accounts";
 import type { Address, Hex } from "viem";

@@ -18,7 +18,6 @@ if (!cUSDT) throw new Error("cUSDT missing from contracts/deployments.json — r
 
 const env =
   [
-    "MODE=local",
     `PONDER_RPC_URL_31337=${RPC}`,
     `SDK_RPC_URL=${RPC}`,
     // Anvil account #0 — the deployer/holder the app deploy wrapped tokens to.

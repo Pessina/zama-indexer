@@ -26,10 +26,12 @@
     "@zama-fhe/sdk": "3.1.0-alpha.15",
     "hono": "^4.5.0",
     "ponder": "^0.16.6",
-    "viem": "^2.21.3"
+    "viem": "^2.21.3",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^20.9.0",
+    "@viem/anvil": "^0.0.10",
     "eslint": "^8.57.1",
     "eslint-config-ponder": "^0.16.6",
     "prettier": "^3.8.4",
@@ -37,6 +39,6 @@
     "vitest": "^3.2.4"
   },
   "engines": {
-    "node": ">=18.14"
+    "node": ">=22"
   }
 }
