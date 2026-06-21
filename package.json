@@ -8,19 +8,25 @@
     "start": "ponder start",
     "db": "ponder db",
     "codegen": "ponder codegen",
-    "lint": "eslint .",
+    "lint": "eslint . --ext .ts",
+    "lint:fix": "eslint . --ext .ts --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "typecheck": "tsc"
   },
   "dependencies": {
-    "ponder": "^0.16.6",
+    "@zama-fhe/sdk": "3.1.0-alpha.15",
     "hono": "^4.5.0",
+    "ponder": "^0.16.6",
     "viem": "^2.21.3"
   },
   "devDependencies": {
     "@types/node": "^20.9.0",
-    "eslint": "^8.53.0",
+    "eslint": "^8.57.1",
     "eslint-config-ponder": "^0.16.6",
-    "typescript": "^5.2.2"
+    "prettier": "^3.8.4",
+    "typescript": "^5.2.2",
+    "vitest": "^4.1.9"
   },
   "engines": {
     "node": ">=18.14"

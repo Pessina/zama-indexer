@@ -1,3 +1,5 @@
 {
-  "extends": "ponder"
+  "root": true,
+  "extends": "ponder",
+  "ignorePatterns": ["node_modules", ".ponder", "generated", "ponder-env.d.ts", "abis"]
 }
