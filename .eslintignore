@@ -1,0 +1,5 @@
+node_modules
+generated
+.ponder
+# contracts/ is a separate Foundry project (its vendored deps carry their own .ts + eslint configs)
+contracts

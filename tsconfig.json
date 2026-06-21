@@ -22,5 +22,7 @@
     "skipLibCheck": true
   },
   "include": ["./**/*.ts"],
-  "exclude": ["node_modules"]
+  // `contracts/` is a separate Foundry project; its vendored Solidity deps ship their own
+  // TypeScript tests, which are not part of this service. Keep tsc on our code only.
+  "exclude": ["node_modules", "contracts", "generated", ".ponder"]
 }
