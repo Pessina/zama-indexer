@@ -1,5 +1,8 @@
 {
   "root": true,
   "extends": "ponder",
-  "ignorePatterns": ["node_modules", ".ponder", "generated", "ponder-env.d.ts", "abis"]
+  "ignorePatterns": ["node_modules", ".ponder", "generated", "ponder-env.d.ts", "abis"],
+  "rules": {
+    "@typescript-eslint/await-thenable": "error"
+  }
 }

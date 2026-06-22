@@ -29,13 +29,13 @@ pnpm contracts:setup     # fetch the forge-fhevm submodule + Solidity deps, then
 
 ```bash
 pnpm chain               # terminal 1 — anvil (chain 31337); keep it running
-pnpm local:deploy        # terminal 2 — host stack + tokens; writes addresses into .env.local
+pnpm local:deploy        # terminal 2 — deploy host stack + tokens (writes contracts/deployments.json)
 pnpm dev                 # indexer + read API at http://localhost:42069
 ```
 
 ## Configuration
 
-`pnpm local:deploy` writes a ready-to-run `.env.local`. See `.env.example` for every variable the service reads. Never commit a real key.
+Local runs need no `.env.local`: the indexer uses built-in defaults and auto-discovers the deployed token from `contracts/deployments.json`. Create `.env.local` only to override a default (see `.env.example` for every variable the service reads). Never commit a real key.
 
 ## Code quality
 
@@ -64,7 +64,7 @@ pnpm contracts:setup     # once — fetch submodule + Solidity deps, then build
 pnpm test                # spins up anvil + deploys + runs + tears the chain down
 ```
 
-`test/` funds accounts in vitest hooks (mint → shield, then an ACL delegation, all via the SDK), then drives the indexer's decrypt seam (`src/lib/zama.ts`): the holder decrypts a handle it owns, a stranger's handle stays `pending` (never dropped), and an ACL delegation unlocks the backfill path. If you already have `pnpm chain` running, the suite reuses it — re-run `pnpm local:deploy` between runs to reset balances.
+`test/` funds accounts in vitest hooks (mint → shield, then an ACL delegation, all via the SDK), then drives the indexer's decrypt seam (`src/utils/zama.ts`): the holder decrypts a handle it owns, a stranger's handle stays `pending` (never dropped), and an ACL delegation unlocks the backfill path. If you already have `pnpm chain` running, the suite reuses it — re-run `pnpm local:deploy` between runs to reset balances.
 
 ## Design
 

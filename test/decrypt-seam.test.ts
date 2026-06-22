@@ -1,60 +1,61 @@
 // Wiring smoke test: proves the local stack is correctly assembled end-to-end —
 // anvil + forge-fhevm host stack + the deployed cUSDT token + the SDK `cleartext()`
-// transport + on-chain ACL — by driving the indexer's own decrypt seam
-// (`src/lib/zama`) the same way the indexer does. Funding happens here in the hook
+// transport + on-chain ACL — by driving the indexer's decrypt seam the same way the
+// indexer does, through a TestActor per account. Funding happens here in the hook
 // (mint → shield, then an ACL delegation), not in a demo script.
 //
 // The local stack is provisioned automatically by test/setup/global.ts (an ephemeral
-// anvil + deploy, or a chain you already have running). The deploy pre-wraps acct0
-// (the holder) with 1000 cUSDT; acct1/acct2 start empty.
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
-import { privateKeyToAccount } from "viem/accounts";
-import type { Address, Hex } from "viem";
+// anvil + deploy, or a chain you already have running), which also hands the deploy
+// output to the suite via inject(). The deploy pre-wraps acct0 (the holder) with
+// 1000 cUSDT; acct1/acct2 start empty.
+import { afterAll, beforeAll, describe, expect, inject, test } from "vitest";
 
-import { decryptAmount, decryptAmountAs, terminate as terminateSeam } from "../src/lib/zama";
-import { ANVIL_KEYS } from "./helpers/accounts";
-import { loadDeployments } from "./helpers/deployments";
-import { makeSigner } from "./helpers/local-sdk";
-import { delegateDecryption, mintAndShield } from "./helpers/topup";
+import { TestActor } from "./helpers/actor";
+import { ANVIL_KEYS } from "../src/anvil";
 
 const DECIMALS = 6n;
 const units = (whole: bigint): bigint => whole * 10n ** DECIMALS;
 
-const { cUSDT } = loadDeployments();
-const holder = privateKeyToAccount(ANVIL_KEYS.acct0).address; // the indexer's holder
-const stranger = privateKeyToAccount(ANVIL_KEYS.acct1).address; // never delegates to holder
-const grantor = privateKeyToAccount(ANVIL_KEYS.acct2).address; // delegates to holder
+// The single token the indexer watches — provided by test/setup/global.ts after the
+// local deploy (vitest provide/inject).
+const { cUSDT } = inject("deployments");
 
-// Read an account's confidential balance handle (a public on-chain read — any signer works).
-const reader = makeSigner(ANVIL_KEYS.acct0);
-async function balanceHandle(owner: Address): Promise<Hex> {
-  return (await reader.sdk.createToken(cUSDT).confidentialBalanceOf(owner)) as Hex;
-}
+const holder = new TestActor(ANVIL_KEYS.acct0); // the indexer's holder (reads + decrypts)
+const stranger = new TestActor(ANVIL_KEYS.acct1); // never delegates to holder
+const grantor = new TestActor(ANVIL_KEYS.acct2); // delegates to holder
 
 beforeAll(async () => {
-  await mintAndShield(ANVIL_KEYS.acct1, { confidentialToken: cUSDT, amount: units(50n) });
-  await mintAndShield(ANVIL_KEYS.acct2, { confidentialToken: cUSDT, amount: units(30n) });
-  await delegateDecryption(ANVIL_KEYS.acct2, { confidentialToken: cUSDT, delegate: holder });
+  await stranger.mintAndShield(cUSDT, units(50n));
+  await grantor.mintAndShield(cUSDT, units(30n));
+  await grantor.delegateDecryption(cUSDT, holder.address);
 }, 120_000);
 
-afterAll(async () => {
-  await reader.sdk.terminate();
-  await terminateSeam();
+afterAll(() => {
+  holder.terminate();
+  stranger.terminate();
+  grantor.terminate();
 });
 
 describe("decrypt seam against the local cleartext stack", () => {
   test("holder decrypts a handle it is entitled to (its own balance)", async () => {
-    const outcome = await decryptAmount(await balanceHandle(holder), cUSDT);
+    const outcome = await holder.decrypt(await holder.balanceHandle(cUSDT, holder.address), cUSDT);
     expect(outcome).toEqual({ status: "decrypted", value: units(1000n) });
   });
 
   test("holder cannot decrypt a stranger's handle → pending, never dropped", async () => {
-    const outcome = await decryptAmount(await balanceHandle(stranger), cUSDT);
+    const outcome = await holder.decrypt(
+      await holder.balanceHandle(cUSDT, stranger.address),
+      cUSDT,
+    );
     expect(outcome.status).toBe("pending");
   });
 
   test("an ACL delegation unlocks decryption (the backfill path)", async () => {
-    const outcome = await decryptAmountAs(await balanceHandle(grantor), cUSDT, grantor);
+    const outcome = await holder.decrypt(
+      await holder.balanceHandle(cUSDT, grantor.address),
+      cUSDT,
+      grantor.address,
+    );
     expect(outcome).toEqual({ status: "decrypted", value: units(30n) });
   });
 });

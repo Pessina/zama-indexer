@@ -3,11 +3,21 @@ import schema from "ponder:schema";
 import { and, eq, lt, or } from "ponder";
 import type { Hex } from "viem";
 
-import { decryptAmount, decryptAmountAs } from "./lib/zama";
+import { ZamaClient } from "./utils/zama";
+import { config } from "./config";
+
 // The single confidential token this indexer watches (its ACL owns the handles).
-import { TOKEN_ADDRESS as TOKEN } from "./config";
+const TOKEN = config.tokenAddress;
 const MAX_ATTEMPTS = 5; // give up retrying a "failed" row after this many sweeps
 const RETRY_BATCH = 25; // bound the relayer load per block-sweep
+
+// One holder-bound Zama client for the whole process (the indexer's decrypt identity).
+const zama = new ZamaClient({
+  privateKey: config.privateKey,
+  rpc: config.rpcUrl,
+  acl: config.aclAddress,
+  executor: config.executorAddress,
+});
 
 const lc = (a: string): Hex => a.toLowerCase() as Hex;
 const isZero = (a: string): boolean => /^0x0+$/i.test(a);
@@ -19,7 +29,7 @@ ponder.on("ConfidentialToken:ConfidentialTransfer", async ({ event, context }) =
   const from = lc(event.args.from);
   const to = lc(event.args.to);
   const handle = event.args.amount as Hex;
-  const outcome = await decryptAmount(handle, TOKEN);
+  const outcome = await zama.decrypt(handle, TOKEN);
 
   await context.db
     .insert(schema.transfer)
@@ -107,7 +117,7 @@ ponder.on("Acl:DelegatedForUserDecryption", async ({ event, context }) => {
     );
 
   for (const row of pending) {
-    const outcome = await decryptAmountAs(row.amountHandle, TOKEN, delegator);
+    const outcome = await zama.decrypt(row.amountHandle, TOKEN, delegator);
     if (outcome.status !== "decrypted") continue;
     await context.db.update(schema.transfer, { id: row.id }).set({
       amountClear: outcome.value,
@@ -146,7 +156,7 @@ ponder.on("RetryDecryptions:block", async ({ event, context }) => {
     .limit(RETRY_BATCH);
 
   for (const row of failed) {
-    const outcome = await decryptAmount(row.amountHandle, TOKEN);
+    const outcome = await zama.decrypt(row.amountHandle, TOKEN);
     await context.db.update(schema.transfer, { id: row.id }).set(
       outcome.status === "decrypted"
         ? {
