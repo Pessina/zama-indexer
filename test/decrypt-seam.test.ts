@@ -50,6 +50,21 @@ describe("decrypt seam against the local cleartext stack", () => {
     expect(outcome.status).toBe("pending");
   });
 
+  // Companion to the stranger case above. That one drives the real "not authorized" throw
+  // (#assertDecryptAuthorization, direct path). This one drives the delegated (backfill)
+  // path's real pre-flight: with no grant in place the SDK throws the typed
+  // DelegationNotFoundError, which classify must map to pending, not failed. (This case
+  // caught exactly that bug — and the unit suite alone couldn't, since it can't reproduce
+  // the SDK's real delegation pre-flight.)
+  test("holder cannot delegate-decrypt a handle with no delegation in place → pending", async () => {
+    const outcome = await holder.decrypt(
+      await holder.balanceHandle(cUSDT, stranger.address),
+      cUSDT,
+      stranger.address, // stranger never delegated to holder → real "not delegated" throw
+    );
+    expect(outcome.status).toBe("pending");
+  });
+
   test("an ACL delegation unlocks decryption (the backfill path)", async () => {
     const outcome = await holder.decrypt(
       await holder.balanceHandle(cUSDT, grantor.address),
