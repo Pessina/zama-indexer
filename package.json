@@ -12,23 +12,34 @@
     "lint:fix": "eslint . --ext .ts --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "fhevm:install": "git submodule update --init --recursive && cd contracts/lib/forge-fhevm && GIT_LFS_SKIP_SMUDGE=1 forge soldeer install",
+    "contracts:install": "cd contracts && GIT_LFS_SKIP_SMUDGE=1 forge soldeer install && forge build",
+    "contracts:setup": "pnpm fhevm:install && pnpm contracts:install",
+    "chain": "anvil --port 8545 --chain-id 31337",
+    "local:host": "contracts/lib/forge-fhevm/deploy-local.sh --anvil-port 8545",
+    "local:app": "cd contracts && rm -rf broadcast && forge script script/Deploy.s.sol --rpc-url http://127.0.0.1:8545 --broadcast --slow --skip-simulation --sender 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+    "local:deploy": "pnpm local:host && pnpm local:app",
+    "test": "vitest run",
+    "test:unit": "vitest run --config vitest.unit.config.ts"
   },
   "dependencies": {
     "@zama-fhe/sdk": "3.1.0-alpha.15",
     "hono": "^4.5.0",
     "ponder": "^0.16.6",
-    "viem": "^2.21.3"
+    "viem": "^2.21.3",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^20.9.0",
+    "@viem/anvil": "^0.0.10",
     "eslint": "^8.57.1",
     "eslint-config-ponder": "^0.16.6",
     "prettier": "^3.8.4",
     "typescript": "^5.2.2",
-    "vitest": "^4.1.9"
+    "vitest": "^3.2.4"
   },
   "engines": {
-    "node": ">=18.14"
+    "node": ">=22"
   }
 }
