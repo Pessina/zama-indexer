@@ -21,13 +21,10 @@ export default createConfig({
       chain: "fhevm",
       abi: aclEventsAbi,
       address: config.aclAddress,
-      startBlock: config.aclStartBlock,
+      startBlock: config.startBlock,
       // Scope the shared ACL contract's firehose to delegations granted TO our
       // holder — those are the only ones that can unlock backfill for us.
-      filter: [
-        { event: "DelegatedForUserDecryption", args: { delegate: config.holderAddress } },
-        { event: "RevokedDelegationForUserDecryption", args: { delegate: config.holderAddress } },
-      ],
+      filter: [{ event: "DelegatedForUserDecryption", args: { delegate: config.holderAddress } }],
     },
   },
   // Periodic safety-net to retry transient decrypt failures (status="failed").

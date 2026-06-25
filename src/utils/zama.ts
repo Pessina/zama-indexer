@@ -1,12 +1,3 @@
-// ZamaClient — the ONLY module that imports @zama-fhe/sdk.
-//
-// Wraps one signer's ZamaSDK over the SDK's cleartext() transport (Anvil +
-// forge-fhevm: reads the on-chain mock executor, enforces real ACL — no hosted
-// relayer). Production builds a single holder-bound instance (see src/index.ts);
-// tests build one per signer (holder, stranger, grantor). `decrypt()` turns an
-// encrypted amount handle into either cleartext or a status the indexer can
-// persist; it never throws for a decrypt condition (entitlement/transport) and
-// rethrows only a fatal misconfiguration (wrong chain, missing signer).
 import { createPublicClient, createWalletClient, http } from "viem";
 import type { Address, Hex, HttpTransport, PublicClient, WalletClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -17,11 +8,8 @@ import { hardhat, type FheChain } from "@zama-fhe/sdk/chains";
 import { createConfig } from "@zama-fhe/sdk/viem";
 import { cleartext } from "@zama-fhe/sdk/node";
 
-// Result of a decrypt attempt — the handler maps this onto the row's status.
-// Covers decrypt conditions only; a fatal misconfiguration is rethrown, not returned:
-//   - decrypted: cleartext obtained
-//   - pending:   not (yet) entitled — keep the handle, retry when an ACL grant lands
-//   - failed:    transient (decrypt / RPC) — retry on the block sweep
+// decrypted: cleartext obtained · pending: not (yet) entitled, retry on an ACL grant
+// · failed: transient (decrypt/RPC), retry on the block sweep.
 export type DecryptOutcome =
   | { status: "decrypted"; value: bigint }
   | { status: "pending"; reason: string }
@@ -30,11 +18,6 @@ export type DecryptOutcome =
 export interface ZamaClientOptions {
   privateKey: Hex;
   rpc: string;
-  // ACL / executor default to the SDK `hardhat` preset (forge-fhevm's canonical
-  // local addresses). Production pins them from config so config stays the single
-  // source of truth; tests omit them and take the preset.
-  acl?: Address;
-  executor?: Address;
 }
 
 export class ZamaClient {
@@ -49,14 +32,7 @@ export class ZamaClient {
     this.publicClient = createPublicClient({ chain: foundry, transport });
     this.walletClient = createWalletClient({ account: this.account, chain: foundry, transport });
 
-    // forge-fhevm's canonical host addresses ARE the SDK `hardhat` preset; pin the
-    // ACL/executor only when explicitly provided so config can stay the source of truth.
-    const fheChain: FheChain = {
-      ...hardhat,
-      network: opts.rpc,
-      ...(opts.acl && { aclContractAddress: opts.acl }),
-      ...(opts.executor && { executorAddress: opts.executor }),
-    };
+    const fheChain: FheChain = { ...hardhat, network: opts.rpc };
 
     this.sdk = new ZamaSDK(
       createConfig({
@@ -70,9 +46,7 @@ export class ZamaClient {
   }
 
   // Decrypt an amount handle. With `delegator`, decrypt via that account's ACL
-  // delegation (the backfill path); without it, decrypt as a direct party to the
-  // transfer. Decrypt conditions return a pending/failed outcome; only a fatal
-  // misconfiguration (see `classifyDecryptError`) is rethrown.
+  // delegation (the backfill path); without it, as a direct party to the transfer.
   async decrypt(handle: Hex, contract: Address, delegator?: Address): Promise<DecryptOutcome> {
     try {
       const input = [{ encryptedValue: handle, contractAddress: contract }];
@@ -91,19 +65,54 @@ export class ZamaClient {
     }
   }
 
-  // SDK terminate() is synchronous (returns void) — shuts down the worker pool.
+  // Read an account's confidential balance handle and decrypt it. An uninitialised
+  // balance (never received tokens) is an all-zero handle on-chain — short-circuit to
+  // 0 rather than decrypt a non-ciphertext.
+  async readBalance(token: Address, owner: Address, delegator?: Address): Promise<DecryptOutcome> {
+    const handle = (await this.sdk.createToken(token).confidentialBalanceOf(owner)) as Hex;
+    if (/^0x0+$/i.test(handle)) return { status: "decrypted", value: 0n };
+    return this.decrypt(handle, token, delegator);
+  }
+
+  // Decrypt a transfer amount the best way the holder is entitled to: directly when the
+  // holder is a party, else via a party (from/to) that CURRENTLY delegates decryption to
+  // the holder. Entitlement is evaluated as a LEVEL at index time, so a transfer that
+  // arrives while a delegation is already active decrypts immediately — the grant-event
+  // backfill (src/index.ts) only covers the reverse order (transfer first, grant later).
+  // Probes on-chain isActive before a delegated decrypt (no wasted attempt for a party that
+  // never delegated), and returns the direct outcome when no party is entitled, so the row
+  // still persists (pending/failed) and retries exactly as before.
+  async decryptTransfer(
+    handle: Hex,
+    token: Address,
+    parties: readonly Hex[],
+  ): Promise<DecryptOutcome> {
+    const direct = await this.decrypt(handle, token);
+    if (direct.status !== "pending") return direct; // decrypted, or a transient "failed" to sweep
+    const holder = this.account.address.toLowerCase();
+    for (const party of parties) {
+      if (/^0x0+$/i.test(party) || party.toLowerCase() === holder) continue;
+      const entitled = await this.sdk.delegations.isActive({
+        contractAddress: token,
+        delegatorAddress: party as Address,
+        delegateAddress: this.account.address,
+      });
+      if (!entitled) continue;
+      const viaDelegation = await this.decrypt(handle, token, party as Address);
+      if (viaDelegation.status === "decrypted") return viaDelegation;
+    }
+    return direct; // not entitled via any party → pending (awaits a future grant)
+  }
+
   terminate(): void {
-    this.sdk.terminate();
+    this.sdk.terminate(); // synchronous — shuts down the worker pool
   }
 }
 
-// Map an SDK failure onto a persistable status by routing on the SDK's
-// machine-readable `ZamaError.code` (via its own `matchZamaError` dispatcher),
-// not instanceof + message cascades. Fatal misconfiguration codes RETHROW: a
-// wrong chain or missing signer can't be fixed by a retry or an ACL grant, so
-// surface it loudly instead of mis-parking every row. "failed" is retried by the
-// block sweep; "pending" is retried when an ACL grant lands. Exported (not a
-// method) because it is pure — unit-tested directly in test/unit/classify.test.ts.
+// Map an SDK failure onto a persistable status by routing on the SDK's machine-readable
+// `ZamaError.code` (via its own `matchZamaError` dispatcher), not message cascades. Fatal
+// misconfig codes rethrow; "failed" is retried by the block sweep, "pending" when an ACL
+// grant lands. Pure + exported — unit-tested in test/unit/classify.test.ts.
 export function classifyDecryptError(err: unknown): DecryptOutcome {
   const outcome = matchZamaError<DecryptOutcome>(err, {
     // Fatal, process-level — fail loud rather than persist a bogus status.
@@ -117,46 +126,32 @@ export function classifyDecryptError(err: unknown): DecryptOutcome {
       throw e;
     },
 
-    // Not (yet) entitled. The cleartext transport has NO distinct code for ACL
-    // denial — it surfaces as a generic DECRYPTION_FAILED whose only signal is the
-    // message. Match the cleartext ACL strings: "not authorized" (#assertDecryptAuthorization,
-    // direct path) and "not delegated" (#assertDelegation, a per-handle fallback; the common
-    // delegated case is the typed DELEGATION_NOT_FOUND code below). publicDecrypt's "not
-    // allowed" is intentionally excluded — the indexer never calls it. Any other
-    // DECRYPTION_FAILED is a genuine failure the sweep should retry.
-    //
-    // False-positive/negative are bounded and never silently dropped: a wrong
-    // "pending" still retries when a grant lands; a wrong "failed" still retries on
-    // the sweep. And the coupling is contained two ways: `@zama-fhe/sdk` is pinned exactly
-    // (3.1.0-alpha.15), so these internal strings can't drift under us without a deliberate
-    // bump; and a bump that reworded them fails the "stranger → pending" integration test,
-    // which exercises the real SDK throw — so a break surfaces in CI, never silently.
+    // The one decrypt outcome the cleartext transport gives no distinct code for: ACL
+    // denial surfaces as a generic DECRYPTION_FAILED, separable only by message — "not
+    // authorized" (direct) / "not delegated" (per-handle). → pending (not entitled); any
+    // other DECRYPTION_FAILED is a real failure the sweep retries. The string coupling is
+    // contained: the SDK is pinned exactly (3.1.0-alpha.15) and a reword fails the
+    // "stranger → pending" integration test. See DECISIONS.md "SDK feedback".
     DECRYPTION_FAILED: (e) =>
       /not authorized|not delegated/i.test(e.message)
         ? { status: "pending", reason: "not-entitled" }
         : { status: "failed", reason: "decrypt-failed" },
 
-    // Not (yet) entitled via the delegated (backfill) path. The SDK's service-level
-    // pre-flight throws these TYPED codes (no string coupling) when no active delegation
-    // covers the contract — the common backfill case. Like the direct "not authorized"
-    // case it is "not entitled", so → pending: keep the row, retry when a
-    // DelegatedForUserDecryption (re-)grant lands.
+    // Delegated (backfill) path with no active delegation — the SDK's typed pre-flight
+    // codes (no string coupling). "Not entitled" → pending: retry when a (re-)grant lands.
     DELEGATION_NOT_FOUND: () => ({ status: "pending", reason: "delegation-not-found" }),
     DELEGATION_EXPIRED: () => ({ status: "pending", reason: "delegation-expired" }),
 
-    // Relayer-transport conditions (don't fire on cleartext; mapped so the seam is
-    // correct when a relayer path is added). Self-resolving → retry as "failed". A
-    // propagation delay means the grant ALREADY landed, so it must be retried by the
-    // time-based sweep, not by waiting for another (already-fired) grant event.
+    // Relayer-transport conditions (don't fire on cleartext; mapped for when a relayer
+    // path is added). Self-resolving → retry as "failed" on the time-based sweep.
     DELEGATION_NOT_PROPAGATED: () => ({ status: "failed", reason: "delegation-not-propagated" }),
     RELAYER_REQUEST_FAILED: () => ({ status: "failed", reason: "relayer-request-failed" }),
     NO_CIPHERTEXT: () => ({ status: "failed", reason: "no-ciphertext" }),
 
-    // Everything else: raw RPC/transport errors (not ZamaErrors) and any unmapped
-    // code. Default is "failed" (the sweep retries it), NEVER a silent "pending" — a
-    // pending row only retries on a grant, so an unknown error parked there would
-    // strand forever. The regex mirrors the SDK's internal, non-exported
-    // `isTransientError` (relayer-utils.ts) — see DECISIONS.md "SDK feedback".
+    // Everything else (raw RPC/transport errors, unmapped codes): default to "failed", never
+    // a silent "pending" — a pending row only retries on a grant, so an unknown error parked
+    // there would strand forever. The token set mirrors the SDK's internal isTransientError
+    // (which substring-matches the same conditions).
     _: (e) => {
       const reason = e instanceof Error ? e.message : String(e);
       return /timeout|timed out|econnreset|econnrefused|network|fetch failed|socket hang up|50[234]/i.test(
@@ -166,7 +161,5 @@ export function classifyDecryptError(err: unknown): DecryptOutcome {
         : { status: "failed", reason };
     },
   });
-  // `_` always returns, so `outcome` is never undefined; the fallback only
-  // satisfies matchZamaError's `R | undefined` signature.
   return outcome ?? { status: "failed", reason: "unclassified" };
 }

@@ -3,11 +3,11 @@
 // oracle — not a mock) and asserts how the indexer would persist it. Fast via
 // `pnpm test:unit`; also runs inside the full `pnpm test`.
 //
-// Scope: the branches the integration test (decrypt-seam.test.ts) can't produce on the
-// cleartext stack — fatal misconfig, relayer-only codes, expired delegation, transient /
-// unknown errors, and the silent-"pending" regression guard. The two common not-entitled
-// paths (direct "not authorized", delegated DELEGATION_NOT_FOUND) are canaried against the
-// real SDK there, so they're intentionally not re-asserted here.
+// Scope: the branches the e2e suite can't produce on the cleartext stack — fatal misconfig,
+// relayer-only codes, expired delegation, transient / unknown errors, and the silent-"pending"
+// regression guard. The two common not-entitled paths (direct "not authorized", delegated
+// DELEGATION_NOT_FOUND) are canaried against the real SDK there — transfers.e2e's pending rows
+// and balance.e2e's `indeterminate` case — so they're intentionally not re-asserted here.
 import { describe, expect, test } from "vitest";
 import {
   ChainMismatchError,
@@ -50,9 +50,10 @@ describe("classifyDecryptError", () => {
     });
   });
 
-  // ── Not-entitled cases the integration test CAN'T reproduce on the cleartext stack.
+  // ── Not-entitled cases the e2e suite CAN'T reproduce on the cleartext stack.
   // (The common paths — direct "not authorized" and delegated DELEGATION_NOT_FOUND — are
-  // exercised against the live SDK in decrypt-seam.test.ts.) These two can't be: the
+  // exercised against the live SDK by the e2e tests: transfers.e2e's pending rows and
+  // balance.e2e's `indeterminate` case.) These two can't be: the
   // per-handle "not delegated" string is only a rare fallback (the service pre-flight
   // catches the common delegated case via DELEGATION_NOT_FOUND first), and an EXPIRED
   // delegation can't be aged out in a fast test. ──

@@ -2,8 +2,6 @@
 
 A confidential ERC-7984 indexer: it watches a single confidential-token contract on a local fhEVM stack, decrypts transfer amounts with the Zama SDK as events are indexed, and serves an ERC-20-style read API (cleartext balances, transfer history, indexer health). Partners call the API and never touch FHE.
 
-> Draft — setup is runnable; the API and architecture sections are stubbed. See `DECISIONS.md` for design notes.
-
 ## Prerequisites
 
 - Node.js 22+ and pnpm
@@ -27,11 +25,27 @@ pnpm contracts:setup     # fetch the forge-fhevm submodule + Solidity deps, then
 
 ## Run (local)
 
+The stack is three processes — a chain, a one-time deploy, then the indexer + API — run in this order, in separate terminals:
+
 ```bash
-pnpm chain               # terminal 1 — anvil (chain 31337); keep it running
-pnpm local:deploy        # terminal 2 — deploy host stack + tokens (writes contracts/deployments.json)
-pnpm dev                 # indexer + read API at http://localhost:42069
+pnpm chain               # terminal 1 — anvil (chain 31337); leave it running
+pnpm local:deploy        # terminal 2 — deploy host stack + tokens → contracts/deployments.json (pre-wraps acct0 with 1000 cUSDT)
+pnpm dev                 # terminal 3 — indexer + read API at http://localhost:42069
 ```
+
+`chain` and `dev` are long-running servers; `local:deploy` is a one-shot that must land after the chain is up and before `dev`. Keep `chain` running across `dev` restarts, and re-run `pnpm local:deploy` to reset balances.
+
+### Verify
+
+```bash
+# indexer sync status — last-indexed block per chain
+curl -s localhost:42069/status
+
+# cleartext balance for acct0 (the holder, pre-wrapped with 1000 cUSDT)
+curl -s localhost:42069/v1/addresses/0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266/balance
+```
+
+To generate more activity to query — a P2P transfer, a `pending` row, and an ACL-delegation backfill — run the seed against the same chain: `pnpm dlx tsx scripts/seed.ts`.
 
 ## Configuration
 
@@ -39,7 +53,7 @@ Local runs need no `.env.local`: the indexer uses built-in defaults and auto-dis
 
 ## Code quality
 
-ESLint (Ponder's config — its one rule is the type-aware `no-floating-promises`, which matters here because a dropped promise is a dropped decryption or DB write) covers correctness; Prettier covers formatting; `tsc` type-checks. The two don't overlap, so no `eslint-config-prettier` shim is needed.
+ESLint (Ponder's config contributes the type-aware `no-floating-promises`, and this project adds `await-thenable` — both matter here because a dropped or mis-awaited promise is a dropped decryption or DB write) covers correctness; Prettier covers formatting; `tsc` type-checks. The two don't overlap, so no `eslint-config-prettier` shim is needed.
 
 ```bash
 pnpm typecheck    # tsc — strict, noUncheckedIndexedAccess on
@@ -49,11 +63,13 @@ pnpm format       # prettier --write .   (pnpm format:check to verify, e.g. in C
 
 ## API
 
-| Method | Path   | Description                                                 |
-| ------ | ------ | ----------------------------------------------------------- |
-| GET    | _TODO_ | Current cleartext balance for an address                    |
-| GET    | _TODO_ | Transfer history for an address (cleartext where available) |
-| GET    | _TODO_ | Indexer health and how far behind it is                     |
+| Method | Path                               | Description                                                                                                                                                                                                                                                                       |
+| ------ | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/v1/addresses/:address/transfers` | Transfer history (P2P confidential transfers + shields/unshields), cleartext where available. Per-row `status`, plus a single `delegationRequired` flag that signals whether a delegation is needed to reveal hidden amounts. Cursor-paginated: `cursor` / `limit` / `direction`. |
+| GET    | `/v1/addresses/:address/balance`   | Current cleartext balance; `status:"indeterminate"` when the indexer lacks decrypt rights for the address.                                                                                                                                                                        |
+| GET    | `/v1/health`                       | Indexer sync lag: `blocksBehind` = chain head − indexed checkpoint (`0` = caught up), with `chainId` / `indexedBlock` / `headBlock`. Always `200`; `503` only if the chain RPC is unreachable. Readiness/liveness stay at `/ready` · `/status`.                                   |
+| GET    | `/docs` · `/openapi.json`          | Swagger UI + OpenAPI 3.1 — the contract that documents every status, the `delegationRequired` flag, and error code (incl. how to grant decrypt rights). Semantics live here, not in response prose.                                                                               |
+| GET    | `/status` · `/ready`               | Raw indexer probes — Ponder's built-ins. `/status`: latest indexed block per chain (the checkpoint `/v1/health` reads). `/ready`: `200` once historical backfill completes — the still-syncing-vs-live signal `/v1/health` defers to rather than duplicates.                      |
 
 ## Testing
 

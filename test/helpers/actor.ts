@@ -1,12 +1,5 @@
-// TestActor — a ZamaClient bound to one Anvil key, exposing the confidential-token
-// operations a test needs: mint→shield, transfer, delegate, read a balance handle,
-// and decrypt. One actor per account; build it once and `terminate()` in afterAll.
-// Funding runs through the SDK's real `cleartext()` path — no forge script, no demo
-// seed — so a `beforeAll` composes exactly the dataset it asserts on. ERC-7984
-// transfers clamp to 0 on insufficient balance (the amount is encrypted, so they
-// cannot revert), so always `mintAndShield` enough before transferring.
 import { type Address, type Hex } from "viem";
-import { ZamaClient, type DecryptOutcome } from "../../src/utils/zama";
+import { ZamaClient } from "../../src/utils/zama";
 import { LOCAL_RPC } from "../../src/anvil";
 
 // Minimal ABI for the TestERC20 mock's open `mint` (test tokens only).
@@ -24,7 +17,7 @@ const MINT_ABI = [
 ] as const;
 
 export class TestActor {
-  private readonly client: ZamaClient;
+  readonly client: ZamaClient;
 
   constructor(pk: Hex, rpc: string = LOCAL_RPC) {
     this.client = new ZamaClient({ privateKey: pk, rpc });
@@ -63,18 +56,6 @@ export class TestActor {
       contractAddress: confidentialToken,
       delegateAddress: delegate,
     });
-  }
-
-  /** Read an account's confidential balance handle (a public on-chain read — any signer works). */
-  async balanceHandle(confidentialToken: Address, owner: Address): Promise<Hex> {
-    return (await this.client.sdk
-      .createToken(confidentialToken)
-      .confidentialBalanceOf(owner)) as Hex;
-  }
-
-  /** Decrypt a handle as this actor — with `delegator`, via that account's ACL delegation. */
-  decrypt(handle: Hex, confidentialToken: Address, delegator?: Address): Promise<DecryptOutcome> {
-    return this.client.decrypt(handle, confidentialToken, delegator);
   }
 
   terminate(): void {
