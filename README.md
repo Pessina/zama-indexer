@@ -61,26 +61,18 @@ pnpm lint         # eslint . --ext .ts   (pnpm lint:fix to autofix)
 pnpm format       # prettier --write .   (pnpm format:check to verify, e.g. in CI)
 ```
 
-## API
-
-| Method | Path                               | Description                                                                                                                                                                                                                                                                       |
-| ------ | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/v1/addresses/:address/transfers` | Transfer history (P2P confidential transfers + shields/unshields), cleartext where available. Per-row `status`, plus a single `delegationRequired` flag that signals whether a delegation is needed to reveal hidden amounts. Cursor-paginated: `cursor` / `limit` / `direction`. |
-| GET    | `/v1/addresses/:address/balance`   | Current cleartext balance; `status:"indeterminate"` when the indexer lacks decrypt rights for the address.                                                                                                                                                                        |
-| GET    | `/v1/health`                       | Indexer sync lag: `blocksBehind` = chain head − indexed checkpoint (`0` = caught up), with `chainId` / `indexedBlock` / `headBlock`. Always `200`; `503` only if the chain RPC is unreachable. Readiness/liveness stay at `/ready` · `/status`.                                   |
-| GET    | `/docs` · `/openapi.json`          | Swagger UI + OpenAPI 3.1 — the contract that documents every status, the `delegationRequired` flag, and error code (incl. how to grant decrypt rights). Semantics live here, not in response prose.                                                                               |
-| GET    | `/status` · `/ready`               | Raw indexer probes — Ponder's built-ins. `/status`: latest indexed block per chain (the checkpoint `/v1/health` reads). `/ready`: `200` once historical backfill completes — the still-syncing-vs-live signal `/v1/health` defers to rather than duplicates.                      |
-
 ## Testing
 
-The tests are **integration tests** — they exercise the real SDK `cleartext()` decrypt path against a live local stack (anvil + the forge-fhevm host stack + the deployed token), with **no mocks**. `pnpm test` provisions that stack itself: it starts an ephemeral anvil, deploys the host stack + tokens, runs the suite, and tears anvil down — or reuses a chain you already have running. It needs [Foundry](https://getfoundry.sh) installed and the contracts built once:
+Two lanes:
+
+- **`pnpm test:unit`** — fast, Foundry-free unit tests (`test/unit/`) over the pure pieces: the decrypt-error classifier (`classifyDecryptError`), the cursor codec, RFC 9457 problem rendering + address parsing, and transfer-row → API-item mapping. No chain, no anvil — the TDD loop and a CI lane that needs no Foundry.
+- **`pnpm test`** — the full suite, those unit tests included. Its **end-to-end tests** (`test/*.e2e.test.ts`) are integration tests: they exercise the real SDK `cleartext()` decrypt path against a live local stack (anvil + the forge-fhevm host stack + the deployed token), with **no mocks**. `pnpm test` provisions that stack itself — it starts its own ephemeral anvil on `8545`, deploys the host stack + tokens, runs the suite, and tears the chain down. It needs [Foundry](https://getfoundry.sh) installed and the contracts built once.
 
 ```bash
 pnpm contracts:setup     # once — fetch submodule + Solidity deps, then build
-pnpm test                # spins up anvil + deploys + runs + tears the chain down
+pnpm test                # ephemeral anvil → deploy → full suite → tear the chain down
+pnpm test:unit           # just the pure unit tests — no anvil, no Foundry
 ```
-
-`test/` funds accounts in vitest hooks (mint → shield, then an ACL delegation, all via the SDK), then drives the indexer's decrypt seam (`src/utils/zama.ts`): the holder decrypts a handle it owns, a stranger's handle stays `pending` (never dropped), and an ACL delegation unlocks the backfill path. If you already have `pnpm chain` running, the suite reuses it — re-run `pnpm local:deploy` between runs to reset balances.
 
 ## Design
 
