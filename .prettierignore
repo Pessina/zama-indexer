@@ -1,0 +1,13 @@
+# Dependencies
+node_modules
+
+# Ponder generated
+.ponder
+generated
+ponder-env.d.ts
+
+# Generated / vendored ABIs (never hand-edited)
+abis
+
+# Lockfile
+pnpm-lock.yaml
