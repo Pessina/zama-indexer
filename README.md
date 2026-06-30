@@ -2,6 +2,10 @@
 
 A confidential ERC-7984 indexer: it watches a single confidential-token contract on a local fhEVM stack, decrypts transfer amounts with the Zama SDK as events are indexed, and serves an ERC-20-style read API (cleartext balances, transfer history, indexer health). Partners call the API and never touch FHE.
 
+## Demo Video
+
+Link: https://drive.google.com/file/d/1XJGWuCuRsigArIZwtyC8Ck_wVx4QS-ug/view?usp=sharing
+
 ## Prerequisites
 
 - Node.js 22+ and pnpm
@@ -39,10 +43,16 @@ pnpm dev                 # terminal 3 — indexer + read API at http://localhost
 
 ```bash
 # indexer sync status — last-indexed block per chain
-curl -s localhost:42069/status
+curl -s localhost:42069/status | jq
 
 # cleartext balance for acct0 (the holder, pre-wrapped with 1000 cUSDT)
-curl -s localhost:42069/v1/addresses/0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266/balance
+curl -s localhost:42069/v1/addresses/0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266/balance | jq
+
+# alice's cleartext balance — `complete` once she's delegated to the holder
+curl -s localhost:42069/v1/addresses/0x70997970c51812dc3a010c7d01b50e0d17dc79c8/balance | jq
+
+# alice's transfer history — newest-first; the 10 received from the holder and her shield 50 (backfilled pending → decrypted after delegation)
+curl -s localhost:42069/v1/addresses/0x70997970c51812dc3a010c7d01b50e0d17dc79c8/transfers | jq
 ```
 
 To generate more activity to query — a P2P transfer, a `pending` row, and an ACL-delegation backfill — run the seed against the same chain: `pnpm dlx tsx scripts/seed.ts`.
